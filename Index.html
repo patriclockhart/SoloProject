@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>D3 - Map</title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script src="https://d3js.org/topojson.v2.min.js"></script>
+    <style>
+        .tooltipData{
+            font-size: small;
+        }
+        #tooltip{
+            opacity: 0;
+            background-color: antiquewhite;
+            position: absolute;
+            width: 240px;
+            height: 80px;
+        }
+
+        #caption{
+            margin: auto;
+            padding-top: 1%;
+            padding-bottom: 1%;
+            padding-left: 4%;
+            font-family: serif;
+            font-size: 20pt;
+        }
+        #subCaption{
+            margin: auto;
+            padding-top: 0%;
+            padding-bottom: 0%;
+            padding-left: 4%;
+            font-family: serif;
+            font-size: 14pt;
+        }
+        #table{
+            margin: auto;
+            padding-top: 0%;
+            padding-bottom: 0%;
+            padding-left: 4%;
+            font-family: serif;
+            font-size: 14pt;
+        }
+        #mapColor{
+            color: mediumorchid;
+        }
+        #container
+        {
+            width: 90vw;
+            height: 80vh;
+        }
+        #canvas
+        {
+            width: 90vw;
+            height: 80vh;
+            background-color: azure;
+        }
+        path.path_geo{
+            stroke-width: .5px;
+            stroke: black;
+        }
+    </style>
+</head>
+<body>
+<div id="caption">
+    US COVID-19 County Maps by Race
+</div>
+<div id = "subCaption">
+    Darker <font id = "mapColor">color</font> is higher count.
+</div>
+
+
+<table id = table>
+    <tr>
+        <th>Select Race to Map:</th>
+        <th>Select Map Type:</th>
+    </tr>
+    <tr>
+        <td><select id = "dropDownMenu">
+            <option value = "B02001_002E">White</option>
+            <option value = "B02001_003E">Black</option>
+            <option value = "B02001_004E">Indigenous Mainland</option>
+            <option value = "B02001_005E">Asian</option>
+            <option value = "B02001_006E">Hawaiian / Pacific Islander</option>
+            <option value = "B02001_007E">Other</option>
+            <option value = "B02001_008E">Multi-racial</option>
+            <option value = "B03001_003E">Hispanic</option>
+
+        </select></td>
+
+        <td><select id = "mapSelect">
+            <option value = "Cases">Cases</option>
+            <option value = "Deaths">Deaths</option>
+            <option value = "Population">Population</option>
+<!--            <option value = "Deviation">Deviation from National Average</option> -->
+
+        </select></td>
+    </tr>
+</table>
+
+<div id="container">
+    <svg id="canvas" viewBox="0 0 1000 800">
+    </svg>
+</div>
+<div id="tooltip"></div>
+<script>
+    // select the svg element
+    let svg = d3.select('svg');
+    // load the data sources:
+    // Source 1: NY times COVID-19 Data (live)
+    let covid19="https://raw.githubusercontent.com/nytimes/covid-19-data/master/live/us-counties.csv";
+    // source 2: US Census Counties geojson
+    let geojson = "data/us_counties_topo.json";
+    // source 3: https://hub.arcgis.com/datasets/USCensus::race-and-ethnicity-county Race statistics by county
+    // 2 = White, 3 = Black, 4 = Indiginous, 5 = Asian, 6 = Hawaiian / Pacific Islander, 7 = Other, 8 = Mutli-racial
+    // 3001_002E = Not Hispanic, 003 = Hispanic (of any race)
+    // E = total population, M = margin of error (not all counties / categories have M)
+    let raceStats = "https://opendata.arcgis.com/datasets/ace8fa8bea514d07a3139e4657b3cd9c_0.csv";
+    //let raceStatGeo = "https://opendata.arcgis.com/datasets/ace8fa8bea514d07a3139e4657b3cd9c_0.geojson";
+//    let selectedRace = "B02001_002E";
+//    let mapType = "Cases"
+    let projection = d3.geoAlbersUsa()
+                        .scale(1300).translate([500, 400])
+    Promise.all(
+        [
+            d3.json(geojson),
+            d3.csv(covid19),
+            d3.csv(raceStats)],d3.autoType()).then(loadMap)//.then(main)
+
+
+    function loadMap(data, selectedRace, mapType) {
+        if (typeof selectedRace === 'string'){} else {
+            selectedRace = "B02001_002E"; //default to show a value before user selects a race
+        }
+        if (typeof mapType === 'string'){} else {
+            mapType = "Cases"; //default to show a value before user selects a race
+        }
+
+        let geoJson = topojson.feature(data[0],data[0].objects.cb_2018_us_county_20m).features;
+        let geo_generator = d3.geoPath().projection(projection);
+        let race_Stats = d3.group(data[2],function(d){return d.FIPS_CODE;});//[d.FIPS_CODE, d.B02001_002E];});
+        let covid_data = d3.group(data[1],function(d){return d.fips;}); // groups of fips
+        let cases_extent = d3.extent(data[1],function (d){
+            return +d.cases
+        })
+        cases_extent[0]=1
+        // 2 = White, 3 = Black, 4 = Indigenous Mainland, 5 = Asian, 6 = Hawaiian / Pacific Islander, 7 = Other, 8 = Mutli-racial
+        // 3001_002E = Not Hispanic, 003 = Hispanic (of any race)
+        let colorScale = d3.scaleLog()
+            .domain(cases_extent)
+            .range(["white","MediumOrchid"])
+            .interpolate(d3.interpolateRgb.gamma(1));
+
+        //create the map and tooltip
+        let mapCanvas = svg.append('g')
+        mapCanvas.selectAll('path')
+        .data(geoJson)
+        .enter()
+        .append('path')
+        .attr("class","path_geo")
+        .attr("d",geo_generator)
+        .attr("fill","white")
+        .on("mousemove",function (mouseData,d){
+            d3.select('#tooltip')
+                .style("opacity",.8)
+                .style("left",(mouseData.clientX+10).toString()+"px")
+                .style("top",(mouseData.clientY+10).toString()+"px")
+                .html(
+                    "<div class='tooltipData'>County: "+covid_data.get(d.properties.GEOID)[0].county+"</div>" +
+                    "<div class='tooltipData'>State: "+covid_data.get(d.properties.GEOID)[0].state+"</div>" +
+                    "<div class='tooltipData' style='color:blue'>Cases: "+Math.round(covid_data.get(d.properties.GEOID)[0].cases * (race_Stats.get(d.properties.GEOID)[0].B02001_002E / (race_Stats.get(d.properties.GEOID)[0].B03001_002E - (-1 * race_Stats.get(d.properties.GEOID)[0].B03001_003E)))).toString()+"</div>" +
+                    "<div class='tooltipData' style='color:red'>Deaths: "+Math.round(covid_data.get(d.properties.GEOID)[0].deaths * (race_Stats.get(d.properties.GEOID)[0].B02001_002E / (race_Stats.get(d.properties.GEOID)[0].B03001_002E - (-1 * race_Stats.get(d.properties.GEOID)[0].B03001_003E)))).toString()+"</div>" +
+                    "<div class='tooltipData' style='color:green'>Race: "+(Math.round(1000 * eval(`race_Stats.get(d.properties.GEOID)[0].${selectedRace}`) / (race_Stats.get(d.properties.GEOID)[0].B03001_002E - (-1 * race_Stats.get(d.properties.GEOID)[0].B03001_003E)))/10).toString()+"% </div>" +
+                    "<div class='tooltipData'></div>")
+        })
+        .transition()
+//        .delay(function (d,i){return i*1})
+        .duration(1000)
+        .style("fill",function (d){
+            try{
+                if (mapType === "Cases") {
+                    return colorScale(parseInt(Math.round(covid_data.get(d.properties.GEOID)[0].cases * (eval(`race_Stats.get(d.properties.GEOID)[0].${selectedRace}`) / (race_Stats.get(d.properties.GEOID)[0].B03001_002E - (-1 * race_Stats.get(d.properties.GEOID)[0].B03001_003E))))));
+                } else if (mapType === "Deaths") {
+                    return colorScale(parseInt(Math.round(covid_data.get(d.properties.GEOID)[0].deaths * (eval(`race_Stats.get(d.properties.GEOID)[0].${selectedRace}`) / (race_Stats.get(d.properties.GEOID)[0].B03001_002E - (-1 * race_Stats.get(d.properties.GEOID)[0].B03001_003E))))));
+                } else if (mapType === "Population") {
+                    return colorScale(parseInt(eval(`race_Stats.get(d.properties.GEOID)[0].${selectedRace}`)));
+                } else if (mapType === "Deviation") {
+                    let casesTot = Math.sum(covid_data.get(d.properties.GEOID)[0].cases)
+                    console.log(casesTot)
+                    return colorScale(parseInt(Math.round((covid_data.get(d.properties.GEOID)[0].cases - casesTot/3220) * (eval(`race_Stats.get(d.properties.GEOID)[0].${selectedRace}`) / (race_Stats.get(d.properties.GEOID)[0].B03001_002E - (-1 * race_Stats.get(d.properties.GEOID)[0].B03001_003E))))));
+                }
+            }
+            catch (error)
+            {
+                return "white"
+            }
+        })
+    svg.call(d3.zoom()
+        .extent([[0,0],[1000,800]])
+        .scaleExtent([1,8])
+        .on("zoom",zoomed)
+    )
+    function zoomed({transform}){
+        mapCanvas.attr("transform",transform)
+    }
+
+    let raceOptions = d3.select('#dropDownMenu').on('change',function(d){
+        loadMap(data, d3.select('#dropDownMenu').property('value'),mapType)
+    });
+
+    let mapOptions = d3.select('#mapSelect').on('change',function(d){
+        loadMap(data, selectedRace, d3.select('#mapSelect').property('value'))
+    });
+
+        mapOptions;
+        raceOptions;
+    }
+
+</script>
+
+
+<!--<select id = "dropDownMenu">
+    <option value = "B02001_002E">White</option>
+    <option value = "B02001_003E">Black</option>
+    <option value = "B02001_004E">Indigenous Mainland</option>
+    <option value = "B02001_005E">Asian</option>
+    <option value = "B02001_006E">Hawaiian / Pacific Islander</option>
+    <option value = "B02001_007E">Other</option>
+    <option value = "B02001_008E">Multi-racial</option>
+    <option value = "B03001_003E">Hispanic</option>
+
+</select>
+
+<select id = "mapSelect">
+    <option value = "Cases">Cases</option>
+    <option value = "Deaths">Deaths</option>
+    <option value = "Population">Population</option>
+    <option value = "Deviation">Deviation from National Average</option>
+
+</select>-->
+
+</body>
+</html>
+
+
+
+
+
+
+
+
